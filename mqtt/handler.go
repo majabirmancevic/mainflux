@@ -22,11 +22,6 @@ var _ session.Handler = (*handler)(nil)
 
 const (
 	protocol = "mqtt"
-
-	topicPrefixThings   = "things"
-	topicPrefixGroups   = "groups"
-	topicSuffixCommands = "commands"
-	topicSuffixMessages = "messages"
 )
 
 var (
@@ -106,17 +101,12 @@ func (h *handler) AuthPublish(c *session.Client, topic *string, _ *[]byte) error
 
 func (h *handler) authorizePublish(publisherID, topic string) error {
 	// Reject leading-slash variants of the custom topic patterns.
-	if strings.HasPrefix(topic, "/"+topicPrefixThings+"/") || strings.HasPrefix(topic, "/"+topicPrefixGroups+"/") {
+	if strings.HasPrefix(topic, "/"+messaging.TopicPrefixThings+"/") || strings.HasPrefix(topic, "/"+messaging.TopicPrefixGroups+"/") {
 		return errors.Wrap(ErrUnauthorizedPublishTopic, fmt.Errorf("%s (leading slash not allowed)", topic))
 	}
 
-	parts := strings.Split(topic, "/")
-	if len(parts) < 3 {
-		return nil
-	}
-
-	prefix, id, suffix := parts[0], parts[1], parts[2]
-	if id == "" {
+	pt, ok, _ := messaging.ParseTopicPath(topic)
+	if !ok {
 		return nil
 	}
 
@@ -124,10 +114,10 @@ func (h *handler) authorizePublish(publisherID, topic string) error {
 	// Commands carry authority and require explicit authorization.
 	var err error
 	switch {
-	case prefix == topicPrefixThings && suffix == topicSuffixCommands:
-		err = h.authorizeThingCommand(publisherID, id)
-	case prefix == topicPrefixGroups && suffix == topicSuffixCommands:
-		err = h.authorizeGroupCommand(publisherID, id)
+	case pt.Prefix == messaging.TopicPrefixThings && pt.Suffix == messaging.TopicSuffixCommands:
+		err = h.authorizeThingCommand(publisherID, pt.ID)
+	case pt.Prefix == messaging.TopicPrefixGroups && pt.Suffix == messaging.TopicSuffixCommands:
+		err = h.authorizeGroupCommand(publisherID, pt.ID)
 	}
 
 	if err != nil {
@@ -246,23 +236,19 @@ func (h *handler) Publish(c *session.Client, topic *string, payload *[]byte) {
 // Commands topics are routed to their own NATS subjects; everything else is
 // routed to the publisher's messages subject.
 func parseTopic(topic, publisherID string) (subject, subtopic string, err error) {
-	parts := strings.Split(topic, "/")
-	if len(parts) >= 3 && parts[1] != "" {
-		prefix, id, suffix := parts[0], parts[1], parts[2]
-		rest := ""
-		if len(parts) > 3 {
-			if rest, err = messaging.NormalizeSubtopic(strings.Join(parts[3:], "/")); err != nil {
-				return "", "", err
-			}
-		}
+	pt, ok, err := messaging.ParseTopicPath(topic)
+	if err != nil {
+		return "", "", err
+	}
+	if ok {
 		switch {
-		case prefix == topicPrefixThings && suffix == topicSuffixCommands:
-			return nats.GetThingCommandsSubject(id, rest), rest, nil
-		case prefix == topicPrefixGroups && suffix == topicSuffixCommands:
-			return nats.GetGroupCommandsSubject(id, rest), rest, nil
+		case pt.Prefix == messaging.TopicPrefixThings && pt.Suffix == messaging.TopicSuffixCommands:
+			return nats.GetThingCommandsSubject(pt.ID, pt.Subtopic), pt.Subtopic, nil
+		case pt.Prefix == messaging.TopicPrefixGroups && pt.Suffix == messaging.TopicSuffixCommands:
+			return nats.GetGroupCommandsSubject(pt.ID, pt.Subtopic), pt.Subtopic, nil
 		// Route to the topic's target thing subject, not the publisher's.
-		case prefix == topicPrefixThings && suffix == topicSuffixMessages:
-			return nats.GetMessagesSubject(id, rest), rest, nil
+		case pt.Prefix == messaging.TopicPrefixThings && pt.Suffix == messaging.TopicSuffixMessages:
+			return nats.GetMessagesSubject(pt.ID, pt.Subtopic), pt.Subtopic, nil
 		}
 	}
 
@@ -386,11 +372,11 @@ func (h *handler) getSubscriptions(c *session.Client, topics *[]string) ([]Subsc
 // custom patterns (things/thingID/commands, groups/groupID/commands, things/thingID/messages).
 func validateCustomTopic(topic, thingID, groupID string) error {
 	// Reject leading-slash variants of the custom topic patterns.
-	if strings.HasPrefix(topic, "/"+topicPrefixThings+"/") || strings.HasPrefix(topic, "/"+topicPrefixGroups+"/") {
+	if strings.HasPrefix(topic, "/"+messaging.TopicPrefixThings+"/") || strings.HasPrefix(topic, "/"+messaging.TopicPrefixGroups+"/") {
 		return errors.Wrap(ErrUnauthorizedSubscriptionTopic, fmt.Errorf("%s (leading slash not allowed)", topic))
 	}
 
-	if !strings.HasPrefix(topic, topicPrefixThings+"/") && !strings.HasPrefix(topic, topicPrefixGroups+"/") {
+	if !strings.HasPrefix(topic, messaging.TopicPrefixThings+"/") && !strings.HasPrefix(topic, messaging.TopicPrefixGroups+"/") {
 		return nil
 	}
 
@@ -412,15 +398,15 @@ func validateCustomTopic(topic, thingID, groupID string) error {
 	}
 
 	switch suffix {
-	case topicSuffixCommands:
-		if prefix == topicPrefixThings && id != thingID {
+	case messaging.TopicSuffixCommands:
+		if prefix == messaging.TopicPrefixThings && id != thingID {
 			return errors.Wrap(ErrUnauthorizedSubscriptionTopic, fmt.Errorf("%s for thing %s", topic, thingID))
 		}
-		if prefix == topicPrefixGroups && id != groupID {
+		if prefix == messaging.TopicPrefixGroups && id != groupID {
 			return errors.Wrap(ErrUnauthorizedSubscriptionTopic, fmt.Errorf("%s for group %s", topic, groupID))
 		}
-	case topicSuffixMessages:
-		if prefix == topicPrefixThings && id != thingID {
+	case messaging.TopicSuffixMessages:
+		if prefix == messaging.TopicPrefixThings && id != thingID {
 			return errors.Wrap(ErrUnauthorizedSubscriptionTopic, fmt.Errorf("%s for thing %s", topic, thingID))
 		}
 	}

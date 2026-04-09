@@ -18,7 +18,55 @@ import (
 const (
 	SenMLContentType = "application/senml+json"
 	JSONContentType  = "application/json"
+
+	TopicPrefixThings   = "things"
+	TopicPrefixGroups   = "groups"
+	TopicSuffixCommands = "commands"
+	TopicSuffixMessages = "messages"
 )
+
+// ParsedTopic holds the components extracted from a structured topic or URL path.
+type ParsedTopic struct {
+	Prefix   string // "things" or "groups"
+	ID       string // thing or group ID
+	Suffix   string // "commands" or "messages"
+	Subtopic string // normalized subtopic (dot-separated)
+}
+
+// ParseTopicPath parses a topic or URL path of the form
+// "<prefix>/<id>/<suffix>[/<subtopic>]" into its components.
+// The subtopic is normalized via NormalizeSubtopic.
+// If the path has fewer than three slash-delimited parts or an empty ID,
+// ok is false and the returned ParsedTopic is zero.
+// Use this in adapters (MQTT, CoAP) that must determine routing from the raw path.
+func ParseTopicPath(path string) (pt ParsedTopic, ok bool, err error) {
+	path = strings.TrimPrefix(path, "/")
+	parts := strings.SplitN(path, "/", 4)
+	if len(parts) < 3 || parts[1] == "" {
+		return ParsedTopic{}, false, nil
+	}
+	pt.Prefix, pt.ID, pt.Suffix = parts[0], parts[1], parts[2]
+	if len(parts) == 4 {
+		if pt.Subtopic, err = NormalizeSubtopic(parts[3]); err != nil {
+			return ParsedTopic{}, false, err
+		}
+	}
+	return pt, true, nil
+}
+
+// ExtractSubtopic finds the first occurrence of "/<suffix>/" in path and
+// returns the normalized subtopic that follows it. If the suffix is absent
+// or has no trailing content, an empty subtopic is returned.
+// Use this in adapters (HTTP, WS) where the URL router has already handled
+// routing and only the optional trailing subtopic needs to be extracted.
+func ExtractSubtopic(path, suffix string) (string, error) {
+	sep := "/" + suffix + "/"
+	idx := strings.Index(path, sep)
+	if idx < 0 {
+		return "", nil
+	}
+	return NormalizeSubtopic(path[idx+len(sep):])
+}
 
 var (
 	// ErrPublishMessage indicates that message publishing failed.

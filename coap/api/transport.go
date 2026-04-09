@@ -28,14 +28,10 @@ import (
 )
 
 const (
-	protocol            = "coap"
-	authQuery           = "auth"
-	authTypeQuery       = "type"
-	startObserve        = 0 // observe option value that indicates start of observation
-	topicPrefixThings   = "things"
-	topicPrefixGroups   = "groups"
-	topicSuffixCommands = "commands"
-	topicSuffixMessages = "messages"
+	protocol      = "coap"
+	authQuery     = "auth"
+	authTypeQuery = "type"
+	startObserve  = 0 // observe option value that indicates start of observation
 )
 
 var errBadOptions = errors.New("bad options")
@@ -121,26 +117,24 @@ func handlePost(m *mux.Message, msg protomfx.Message, key domain.ThingKey) error
 		return errBadOptions
 	}
 
-	path = strings.TrimPrefix(path, "/")
-	parts := strings.SplitN(path, "/", 4)
-	if len(parts) >= 3 {
-		prefix, id, suffix := parts[0], parts[1], parts[2]
-		if len(parts) == 4 {
-			if msg.Subtopic, err = messaging.NormalizeSubtopic(parts[3]); err != nil {
-				return err
-			}
-		}
+	pt, ok, err := messaging.ParseTopicPath(path)
+	if err != nil {
+		return err
+	}
+	if ok {
+		msg.Subtopic = pt.Subtopic
 		switch {
-		case prefix == topicPrefixThings && suffix == topicSuffixCommands:
-			return service.SendCommandToThing(context.Background(), key, id, msg)
-		case prefix == topicPrefixGroups && suffix == topicSuffixCommands:
-			return service.SendCommandToGroup(context.Background(), key, id, msg)
-		case prefix == topicPrefixThings && suffix == topicSuffixMessages:
+		case pt.Prefix == messaging.TopicPrefixThings && pt.Suffix == messaging.TopicSuffixCommands:
+			return service.SendCommandToThing(context.Background(), key, pt.ID, msg)
+		case pt.Prefix == messaging.TopicPrefixGroups && pt.Suffix == messaging.TopicSuffixCommands:
+			return service.SendCommandToGroup(context.Background(), key, pt.ID, msg)
+		case pt.Prefix == messaging.TopicPrefixThings && pt.Suffix == messaging.TopicSuffixMessages:
 			return service.Publish(context.Background(), key, msg)
 		}
 	}
 
 	// Path is used as subtopic directly (e.g. "home/room/temperature").
+	path = strings.TrimPrefix(path, "/")
 	if msg.Subtopic, err = messaging.NormalizeSubtopic(path); err != nil {
 		return err
 	}

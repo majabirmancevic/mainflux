@@ -5,7 +5,6 @@ package api
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -32,9 +31,6 @@ const (
 	ctJSON      = "application/json"
 	headerCT    = "Content-Type"
 
-	messagesBasePath      = "/messages"
-	thingCommandsBasePath = "/things/%s/commands"
-	groupCommandsBasePath = "/groups/%s/commands"
 )
 
 // MakeHandler returns a HTTP handler for API endpoints.
@@ -106,8 +102,7 @@ func decodeRequest(_ context.Context, r *http.Request) (any, error) {
 		return nil, err
 	}
 
-	subtopic := extractSubtopicFromPath(r.URL.Path, messagesBasePath)
-	subtopic, err = messaging.NormalizeSubtopic(subtopic)
+	subtopic, err := messaging.ExtractSubtopic(r.URL.Path, messaging.TopicSuffixMessages)
 	if err != nil {
 		return nil, err
 	}
@@ -137,8 +132,7 @@ func decodeSendCommandToThing(_ context.Context, r *http.Request) (any, error) {
 
 	id := bone.GetValue(r, apiutil.IDKey)
 
-	subtopic := extractSubtopicFromPath(r.URL.Path, fmt.Sprintf(thingCommandsBasePath, id))
-	subtopic, err = messaging.NormalizeSubtopic(subtopic)
+	subtopic, err := messaging.ExtractSubtopic(r.URL.Path, messaging.TopicSuffixCommands)
 	if err != nil {
 		return nil, err
 	}
@@ -175,8 +169,7 @@ func decodeSendCommandByGroup(_ context.Context, r *http.Request) (any, error) {
 
 	id := bone.GetValue(r, apiutil.IDKey)
 
-	subtopic := extractSubtopicFromPath(r.URL.Path, fmt.Sprintf(groupCommandsBasePath, id))
-	subtopic, err = messaging.NormalizeSubtopic(subtopic)
+	subtopic, err := messaging.ExtractSubtopic(r.URL.Path, messaging.TopicSuffixCommands)
 	if err != nil {
 		return nil, err
 	}
@@ -209,13 +202,6 @@ func readPayload(r *http.Request) ([]byte, error) {
 	defer r.Body.Close()
 
 	return payload, nil
-}
-
-func extractSubtopicFromPath(fullPath string, basePath string) string {
-	if sub, ok := strings.CutPrefix(fullPath, basePath+"/"); ok {
-		return sub
-	}
-	return ""
 }
 
 func encodeResponse(_ context.Context, w http.ResponseWriter, _ any) error {

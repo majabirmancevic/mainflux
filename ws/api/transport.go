@@ -5,7 +5,6 @@ package api
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/MainfluxLabs/mainflux"
 	log "github.com/MainfluxLabs/mainflux/logger"
@@ -56,11 +55,7 @@ func decodeMessageRequest(r *http.Request) (getConnByKey, error) {
 		return getConnByKey{}, err
 	}
 
-	var subtopicPath string
-	if idx := strings.Index(r.URL.Path, "/messages/"); idx >= 0 {
-		subtopicPath = r.URL.Path[idx+len("/messages/"):]
-	}
-	subtopic, err := messaging.NormalizeSubtopic(subtopicPath)
+	subtopic, err := messaging.ExtractSubtopic(r.URL.Path, messaging.TopicSuffixMessages)
 	if err != nil {
 		return getConnByKey{}, err
 	}
@@ -74,11 +69,7 @@ func decodeCommandRequest(r *http.Request) (cmdConnReq, error) {
 		return cmdConnReq{}, errors.ErrMalformedEntity
 	}
 
-	var subtopicPath string
-	if idx := strings.Index(r.URL.Path, "/commands/"); idx >= 0 {
-		subtopicPath = r.URL.Path[idx+len("/commands/"):]
-	}
-	subtopic, err := messaging.NormalizeSubtopic(subtopicPath)
+	subtopic, err := messaging.ExtractSubtopic(r.URL.Path, messaging.TopicSuffixCommands)
 	if err != nil {
 		return cmdConnReq{}, err
 	}
